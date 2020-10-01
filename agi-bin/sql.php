@@ -108,7 +108,7 @@ class AGIDB {
   public $dbtype;
   public $dbhandle;
 
-  function AGIDB($AGI=null) {
+  function __construct($AGI=null) {
 	// This gets called when 'new AGIDB(..)' is run.
 
 	if (!class_exists('AGI')) {
@@ -142,16 +142,16 @@ class AGIDB {
 
   	// Determine DB type
 	if ($this->dbtype == 'mysql') {
-		$dbhandle = mysql_connect($this->dbhost, $this->dbuser, $this->dbpass);
+		$dbhandle = mysqli_connect($this->dbhost, $this->dbuser, $this->dbpass);
 		if (!$dbhandle) {
-			$this->errstr = 'SEVERE: AGI could not connect to MySQL Database. '.mysql_error();
+			$this->errstr = 'SEVERE: AGI could not connect to MySQL Database. '.mysqli_error($this->dbhandle);
 			debug ($this->errstr, 1);
 			return null;
 		}
 		$this->debug("Connected to MySQL database OK.", 4);
-		$selected = mysql_select_db($this->dbname, $dbhandle);
+		$selected = mysqli_select_db( $dbhandle, $this->dbname);
 		if (!$selected) {
-			$this->errstr = 'SEVERE: AGI could not select MySQL Database "'.$this->dbname.'" - '.mysql_error();
+			$this->errstr = 'SEVERE: AGI could not select MySQL Database "'.$this->dbname.'" - '.mysqli_error($this->dbhandle);
 			$this->debug($this->errstr, 1);
 			return null;
 		}
@@ -248,26 +248,26 @@ class AGIDB {
 
 	switch ($this->db) {
 		case "mysql":
-			$res = mysql_query($result, $this->dbhandle);
+			$res = mysqli_query($this->dbhandle, $result);
 			if (!$res) {
-				$this->errstr = "MySQL Error: ".mysql_error()." with query $result";
+				$this->errstr = "MySQL Error: ".mysqli_error($this->dbhandle)." with query $result";
 				$this->debug($this->errstr, 1);
 				return false;
 			}
 			// Loop through the returned result set, loading it into the array to return
 			// to the caller.
-			$this->numrows = mysql_num_rows($res);
+			$this->numrows = mysqli_num_rows($res);
 			// Return the correct type.
 			if ($type == "NONE") {
 				return true;
 			}
 			for ($i = 0; $i <= $this->numrows; $i++) {
 				if ($type == "NUM") {
-					$sqlresult[$i] = mysql_fetch_array($res, MYSQL_NUM);
+					$sqlresult[$i] = mysqli_fetch_array($res, MYSQLI_NUM);
 				} elseif ($type = "ASSOC") {
-					$sqlresult[$i] = mysql_fetch_array($res, MYSQL_ASSOC);
+					$sqlresult[$i] = mysqli_fetch_array($res, MYSQLI_ASSOC);
 				} else {
-					$sqlresult[$i] = mysql_fetch_array($res, MYSQL_BOTH);
+					$sqlresult[$i] = mysqli_fetch_array($res, MYSQLI_BOTH );
 				}
 			}
 			return $sqlresult;
@@ -338,8 +338,22 @@ class AGIDB {
   }
 
   function rename_table($from, $to) {
+	if ($this->dbhandle == null) {
+		if (!$this->dbhandle = $this->sql_database_connect()) {
+			$this->debug('SEVERE: Unable to connect to database.', 1);
+			return false;
+		}
+	}
 	switch ($this->db) {
 		case "mysql":
+			mysqli_query($this->dbhandle, "DROP TABLE `$to`");
+			$sql = "ALTER TABLE `$from` RENAME TO `$to`";
+			if(!$res = mysqli_query($this->dbhandle,$sql)) {
+				print "Error in sql `$sql` - ".mysqli_error($this->dbhandle)."\n";
+				return false;
+			} else {
+				return true;
+			}
 		case "sqlite":
 		case "sqlite3":
 			$this->sql("DROP TABLE `$to`", "NONE", true);
@@ -357,8 +371,16 @@ class AGIDB {
   }
 
   function add_col($tablename, $colname, $type) {
+	if ($this->dbhandle == null) {
+		if (!$this->dbhandle = $this->sql_database_connect()) {
+			$this->debug('SEVERE: Unable to connect to database.', 1);
+			return false;
+		}
+	}
 	switch ($this->db) {
 		case "mysql":
+			$sql = "ALTER TABLE `$tablename` ADD COLUMN `$colname`";
+			return mysqli_query($this->dbhandle,$sql);
 		case "sqlite":
 		case "sqlite3":
 			return $this->sql("ALTER TABLE `$tablename` ADD COLUMN `$colname`", "NONE", true);
@@ -380,7 +402,8 @@ class AGIDB {
 
 	switch ($this->db) {
 		case "mysql":
-			return $this->sql("ALTER TABLE `$tablename` DROP COLUMN `$colname`");
+			$sql = "ALTER TABLE `$tablename` DROP COLUMN `$colname`";
+			return mysqli_query($this->dbhandle,$sql);
 		case "sqlite":
 		case "sqlite3":
 		// As SQLite doesn't support much in the way of 'alter table', we need to do some fiddling.
@@ -461,7 +484,8 @@ class AGIDB {
 
 	switch ($this->db) {
 		case "mysql":
-			return $this->sql("ALTER TABLE `$tablename` CHANGE `$colname` `$colname` $type");
+			$sql = "ALTER TABLE `$tablename` CHANGE `$colname` `$colname` $type";
+			return mysqli_query($this->dbhandle,$sql);
 		case "sqlite":
 		case "sqlite3":
 		// As per remove_col - SQLite doesn't support ALTER TABLE properly. We have to work
@@ -569,7 +593,7 @@ class AGIDB {
 
 	switch ($this->db) {
 		case "mysql":
-			return mysql_real_escape_string($str, $this->dbhandle);
+			return mysqli_real_escape_string($this->dbhandle, $str);
 		case "sqlite":
 		case "sqlite3":
 			// SQLite only needs to care about single ticks - "'". Escape
